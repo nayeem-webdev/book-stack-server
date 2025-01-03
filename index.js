@@ -7,10 +7,36 @@ const port = process.env.PORT || 5000;
 const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
 
-// middle ware
+//!! Middleware
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors());
+app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
+
+//@@ Custom Middleware
+const VerifyToken = (req, res, next) => {
+  const token = req?.cookies?.token;
+
+  //!! Check if token exists
+  if (!token) {
+    return res
+      .status(401)
+      .send({ message: "Access Not Authorized. Token missing." });
+  }
+
+  //$$ Verify the token
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    if (err) {
+      return res
+        .status(401)
+        .send({ message: "Invalid or expired token. Access Prohibited." });
+    }
+
+    //$$ If successful, attach decoded info to `req`
+    req.decoded = decoded;
+    next();
+  });
+};
+//@@ Custom Middleware Ends
 
 // mongoDB
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.hl8mn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -37,17 +63,31 @@ async function run() {
       const token = jwt.sign(data, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: "5h",
       });
-      res.send(token);
-      // .cookie("token", token, {
-      //   httpOnly: true,
-      //   secure: false,
-      //   sameSite: "none",
-      // })
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: false,
+        })
+        .send({ success: true });
     });
 
     //$$ GETting All Book
-    app.get("/my-books", async (req, res) => {
+    app.get("/all-books", async (req, res) => {
       const cursor = bookCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    //$$ GETting My Book UID
+    app.get("/all-books/:uid", VerifyToken, async (req, res) => {
+      const uid = req.params.uid;
+      if (req.decoded.uid !== uid) {
+        return res
+          .status(403)
+          .send({ message: "You are not authorized to access these books" });
+      }
+      const query = { uid: uid };
+      const cursor = bookCollection.find(query);
       const result = await cursor.toArray();
       res.send(result);
     });
